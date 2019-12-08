@@ -1,6 +1,6 @@
 rm(list = ls())
 setwd("~/Scoring_Model")
-dat1 <- read.csv("loan_data.csv") 
+dat1 <- read.csv("Loan_Data.csv") 
 library(mice)
 library(caret)
 library(dplyr)
