@@ -1,0 +1,2 @@
+# Creating-a-Credit-Scoring-Model-to-obtain-the-probability-of-default
+We have baseline and loan performance information for approximately 6000 loans.  The target variable (BAD) is a binary variable indicating whether an applicant eventually defaulted or was seriously delinquent.  We have 12 recorded variables for each applicant.  Given these information we want to obtain a predictive model which outputs 'probability of default' with special care on multicollinearity.
