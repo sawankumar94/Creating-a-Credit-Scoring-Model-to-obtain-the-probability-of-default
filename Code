@@ -1,6 +1,6 @@
 rm(list = ls())
-setwd("~/20190220 Assignment/20190221")
-dat1 <- read.csv("Assignment.csv") 
+setwd("~/Scoring_Model")
+dat1 <- read.csv("loan_data.csv") 
 library(mice)
 library(caret)
 library(dplyr)
@@ -67,15 +67,6 @@ final_data <- complete(imp,1) #I am using first of the 5 created imputed dataset
 
 stripplot(imp, pch = 20, cex = 0.2) #This will help in visualization of
                                     #distribution of observed and  missing data
-                                    #The file is in folder with name 'StripPlot.pdf'.
-                                    #In the plot, on the y -axis we have values that variable take 
-                                    #on x-axis you will find number from 0 to 5. We have 5 imputed datasets.
-                                    #The distribution correspond to 0 is the observed one(blue). For 1,2,3, 4& 5 . we have
-                                    #the distribution correspond to both observed (blue) and imputed (red) values.
-                                    #Please have a look .We can see that ditribution almost match.
-
-
-
                                     
 ###Input variable data insghts 
 
@@ -84,9 +75,7 @@ stripplot(imp, pch = 20, cex = 0.2) #This will help in visualization of
 #2 levels for 'BAD' i.e 0 or 1. We want to use all of 12 predictors to model the probability of default i.e being 'BAD'.
 
 
-summary(final_data) #To check for statistics like min, max, mean , median and quantiles. The image/picture of the
-                    #summary table is in the Word file in Step 2.
-
+summary(final_data) #To check for statistics like min, max, mean , median and quantiles. 
 
 #LOAN, MORTDUE and VALUE are the predictors which can take large number upto 855909 like amount. The predictors like 
 #YOJ, DEROG, DELINQ, NINQ  and CLNO take the positive integer basically count.
@@ -97,12 +86,10 @@ summary(final_data) #To check for statistics like min, max, mean , median and qu
 
 #We can see one metric just to check which all preditors have variance close to 0 . The code is follows:
 nearZeroVar(final_data, saveMetrics = TRUE) # You will see all of the predictors have variance far from 0.
-                                            # The output is attached in the word file.
-
-
+                                            
 #3. Transform Variables:
 
-# Apart from the 'interaction term'  which i will discuss little later, we can think of the ratios like 
+# We can think of certain reasonable ratios like 
 # a) ratio of delinquent credit lines and total credit lines because there is a difference in someone being delinquent in 1 out of 2 total trades
 #    than 1 out of 4 total trades.
 # b) ratio of loan requested and  value of the property because it says something about someone's capacity 
@@ -172,9 +159,8 @@ summary(mymodel1) #The screenshot of the summary of the parameters, R-squared,  
                   # VIF = 1/(1-Rsquared) = 1/(1-0.9016) = 10.16
 
 
-#We will find VIF for other quantitative predictors in the same manner. The pictures for the fit will be found there in the
-#doc file. Here  for each fit, i will provide R-squared, p-value of the fit and VIF in the table below.
-
+#We will find VIF for other quantitative predictors in the same manner. 
+#Here  for each fit, i will provide R-squared, p-value of the fit and VIF in the table below.
 
 #        R-squared	p-value	  VIF
 #VALUE	   0.90	     0.00	   10.16
@@ -190,7 +176,6 @@ summary(mymodel1) #The screenshot of the summary of the parameters, R-squared,  
 #loan_val	 0.75	     0.00	    4.05
 #mort_val	 0.65	     0.00	    2.87
 #del_total 0.23	     0.00	    1.30
-
 
 #The above table is build upon the values obtained from the following linear regression model. The pictures for 
 #each of fit below will be found in the doc file.
@@ -257,16 +242,15 @@ training$BAD <- as.factor(training$BAD)
 training1 <- training[, -2] #removing mort_due from the model
 glm.fits=glm(BAD~.,data= training1, family = binomial(link = "logit"))
 
-summary(glm.fits) #You will see that Null Deviance is 4074.2 and Residual deviance is 2944.1. The picture is there in the doc file.
+summary(glm.fits) #You will see that Null Deviance is 4074.2 and Residual deviance is 2944.1. 
 #Here i know by seeing seeing Pr(>|z|) we can think of  removing YOJ and loan_val. But i decided to keep it so that i can add
 #interactions later(with these variables if possible)
 
 
 anova(glm.fits, test="Chisq")  # We can see the individual contribution of each predictor in the reducing the residual deviance.
-                               # The DELINQ is highest with 343.71, DEBTINC is second with 262.76 . Again i have attached this in doc file.
+                               # The DELINQ is highest with 343.71, DEBTINC is second with 262.76 . 
 
 ##adding interactions
-
 
 #a) I thought that the effectiveness of the 'LOAN' (Loan Requested) should increase with the 'VALUE' (Value of the current property) borrower has.
 
@@ -291,7 +275,7 @@ summary(glm.fits3) #We can see that Null Deviance is 4074.2 and Residual devianc
                    #2881.5- 2842.9 = 38.6 . This is also attached in the doc file.
 
 #Just to confirm the number mentioned above 38.6 contributed by this interaction  JOB:NINQ , i ran the following code.
-anova(glm.fits3, test="Chisq") #Please see the picture in the doc file.  
+anova(glm.fits3, test="Chisq") 
 
 
 #SO we will include JOB:NINQ in the model.
@@ -299,14 +283,13 @@ anova(glm.fits3, test="Chisq") #Please see the picture in the doc file.
 
 #I look for other interactions as well like JOB:YOJ but it is reducing the residual deviance by 11 unit only. So it was not included. 
 
-
 #So the final model will be :
 training3 <- training[, -2]
 glm.fits3=glm(BAD~. + LOAN:VALUE+ JOB:NINQ ,data= training3, family = binomial(link = "logit"))
 #with residual deviance 2842.9 and AIC 2892.9 .
 
 #the model coefficients can be found by :
-round(coef(glm.fits3), 2) #attached
+round(coef(glm.fits3), 2) 
 
 
 #the std error for the estimates of the coefficients can be found by:
@@ -329,8 +312,6 @@ round(summary(glm.fits3)$coef[,2],2) #attached
 
 
 #I will discuss about the signficance of the variables used in the model in the 7th step. So lets straight away go to 6th Step.
-
-
 
 #6.	Comparison: 
 contrasts(testing$REASON)
@@ -415,8 +396,6 @@ auc     #0.82
 
 
 #Lets revisit the model which we finalise glm.fits3
-#
-
 summary(glm.fits3) # we have standard error corresponding to the estimate of each of the variable 
                    # and (Pr(>|z|)) 
                    # with standard error being small the (max  value is 0.56 and mean value 0.175)
