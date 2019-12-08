@@ -1,0 +1,453 @@
+rm(list = ls())
+setwd("~/20190220 Assignment/20190221")
+dat1 <- read.csv("Assignment.csv") 
+library(mice)
+library(caret)
+library(dplyr)
+library(DBI)
+
+
+####Step wise documentation: 
+
+#Preprocessing :- We have two categorical predictors i.e 'JOB' and 'REASON' .The 'JOB' has 2 levels 
+#and 'REASON'  has 6 levels . But when i read that csv file in R as 'dat1' variable. It was treating
+#missing i.e '' (empty string) as a separate level . So for 'JOB' it was showing 3 levels and 
+#for 'REASON' it was showing   7 levels, one extra level for '' (empty string) .
+#So by below code i converted the '' empty string to NA .
+
+
+dat1$JOB <- as.character(dat1$JOB)
+dat1$JOB[dat1$JOB == ""] <- NA
+dat1$JOB <- as.factor(dat1$JOB)
+
+
+dat1$REASON <- as.character(dat1$REASON)
+dat1$REASON[dat1$REASON == ""] <- NA
+dat1$REASON <- as.factor(dat1$REASON)
+
+
+#1.	Data Partition
+#   Partitioning the data in a such a way that we have 67% of the data for training and the other
+#   33% for validation/testing procedure.
+
+
+inTrain <- createDataPartition(y= dat1$BAD,p=0.67, list=FALSE)
+
+
+#Here i haven't created training and testing data because i wanted to do impute the missing
+#values based on the entire data as asked. So you will find splitted data i.e training and testing data 
+#after imputation.
+
+
+#We need to check the proportion of the values in the column need to be  imputed.
+
+Missing <- function(x){sum(is.na(x))/length(x)*100}
+round(apply(dat1,2,Missing),2) 
+#The output of the above function is the percentage of the missing values in that column, is described as follows:
+
+#LOAN MORTDUE   VALUE  REASON     JOB     YOJ   DEROG  DELINQ   CLAGE    NINQ    CLNO DEBTINC     BAD 
+#0.00    8.69    1.88    4.23    4.68    8.64   11.88    9.73    5.17    8.56    3.72   21.26    0.00 
+
+
+#2. Impute
+#   Used 'Multiple Imputation' technique to impute the data from 'Mice' Package in R. Here it is
+#   assumed that at the missing data are Missing at Random (MAR),means that the probability that 
+#   a value is missing depends only on observed value and can be predicted using them. 
+#   It imputes data on a variable by variable basis by specifying an imputation model per variable.
+
+
+imp <- mice(dat1, m=5, seed = 23109)  #This code creates 5 imputed datasets. The multiple
+                                      # datasets are created to pool the regression estimates 
+                                      # if used for prediction.
+
+
+final_data <- complete(imp,1) #I am using first of the 5 created imputed datasets. So 'final_data'  
+                              # is the complete data where missing values are imputed from the 
+                              #first of the 5 imputed datasets.
+
+stripplot(imp, pch = 20, cex = 0.2) #This will help in visualization of
+                                    #distribution of observed and  missing data
+                                    #The file is in folder with name 'StripPlot.pdf'.
+                                    #In the plot, on the y -axis we have values that variable take 
+                                    #on x-axis you will find number from 0 to 5. We have 5 imputed datasets.
+                                    #The distribution correspond to 0 is the observed one(blue). For 1,2,3, 4& 5 . we have
+                                    #the distribution correspond to both observed (blue) and imputed (red) values.
+                                    #Please have a look .We can see that ditribution almost match.
+
+
+
+                                    
+###Input variable data insghts 
+
+#So the final_data is the complete data. We have 13 columns in which 3 are categorical 
+#so they have levels. Like earlier mentioned we have 2 levels for 'JOB' , 6 levels for 'REASON' and
+#2 levels for 'BAD' i.e 0 or 1. We want to use all of 12 predictors to model the probability of default i.e being 'BAD'.
+
+
+summary(final_data) #To check for statistics like min, max, mean , median and quantiles. The image/picture of the
+                    #summary table is in the Word file in Step 2.
+
+
+#LOAN, MORTDUE and VALUE are the predictors which can take large number upto 855909 like amount. The predictors like 
+#YOJ, DEROG, DELINQ, NINQ  and CLNO take the positive integer basically count.
+#CLAGE & DEBTINC takes decimal number.
+
+#342th observation has CLNO = 0 but DELINQ =1 which means out of 0 credit lines that customer has 1 delinquent
+#trade which is not possible.
+
+#We can see one metric just to check which all preditors have variance close to 0 . The code is follows:
+nearZeroVar(final_data, saveMetrics = TRUE) # You will see all of the predictors have variance far from 0.
+                                            # The output is attached in the word file.
+
+
+#3. Transform Variables:
+
+# Apart from the 'interaction term'  which i will discuss little later, we can think of the ratios like 
+# a) ratio of delinquent credit lines and total credit lines because there is a difference in someone being delinquent in 1 out of 2 total trades
+#    than 1 out of 4 total trades.
+# b) ratio of loan requested and  value of the property because it says something about someone's capacity 
+#        
+# c) ratio of amount due on mortgage and  value of the property because if it is high then that borrower is most
+#    likely to default
+ 
+#These three new predictors are created as follows:
+
+final_data$del_total <- round(final_data$DELINQ/final_data$CLNO,2)
+final_data$loan_val <- round(final_data$LOAN/final_data$VALUE,2)
+final_data$mort_val <- round(final_data$MORTDUE/final_data$VALUE,2)
+
+
+#Since del_total can be Nan by (0/0) - 63 such cases and infinite (1/0)- just for 1 case row number 342.
+# So it is necessary to penalize for Nan and Inf . Therefore i chose -1 and -3 to put for Nan and Inf values respectively
+
+final_data$del_total[is.nan(final_data$del_total)==TRUE ] <- -1
+final_data$del_total[is.infinite(final_data$del_total)==TRUE ] <- -3
+
+
+#finally training and testing data splitting
+training <- final_data[inTrain,]
+testing <- final_data[-inTrain,]
+
+
+
+#4. Variable Selection: 
+
+
+#Correlation 
+
+ #Since we can't have correlation for categorical predictor like 'JOB' and 'REASON' . I will exclude it for 
+ #a moment to find the correlation matrix for remaining quantitative predictors except 'BAD'. Later 
+ #i will use Variance inflation factor to check for multicollinearity.
+
+new_training <- training[, -c(4,5, 13)] #excluding 'JOB','REASON' and 'BAD'
+
+round(cor(new_training), 2) #The output is attached in the word file. Please have a look.
+                            #We can see that MORTDUE and VALUE have correlation coefficient 0.88 which is maximum
+                            #second largest wiht 0.57 between loan_val and LOAN
+                            #third largest wiht 0.42 between del_total and DELINQ
+                            #Fourth largest wiht 0.35 between MORTDUE and CLNO
+                            #smallest with -0.37 betwen loan_val and VALUE
+
+
+#We will explore VIF to look for multicollinearity.
+
+
+cor_train_check <- training[, -13]  #removing 'BAD' so that i can check multicollinearity among predictors
+                                    #by fitting Multi regression model where y is that predictor for which
+                                    #VIF is being calculated and the rest as predictors  
+                                    #Please note that we can't have VIF for categorical Predictors like 'JOB' and 'REASON'
+
+
+#Finding VIF for 'VALUE', so linear regression model is fit with 'VALUE' as target and the rest as predictors .
+#Since JOB(2 levels) & REASON (5 levels) are categorical predictors so before fitting the model we need to create
+#dummy variables  by using the code as follows:
+
+contrasts(cor_train_check$REASON)
+contrasts(cor_train_check$JOB) 
+
+mymodel1 <- lm(VALUE~ ., data = cor_train_check )
+summary(mymodel1) #The screenshot of the summary of the parameters, R-squared,  p-value of the individual coefficients
+                  #and p-value of the fit are in the doc file. Please have a look. 
+                  #For mymodel1, the R-squared is 0.9016 and p-value of the entire fit is 2.2e-16, so the fit is significant.
+                  # VIF = 1/(1-Rsquared) = 1/(1-0.9016) = 10.16
+
+
+#We will find VIF for other quantitative predictors in the same manner. The pictures for the fit will be found there in the
+#doc file. Here  for each fit, i will provide R-squared, p-value of the fit and VIF in the table below.
+
+
+#        R-squared	p-value	  VIF
+#VALUE	   0.90	     0.00	   10.16
+#LOAN      0.73	     0.00	    3.66
+#MORTDUE	 0.92	     0.00	   11.82
+#YOJ	     0.10	     0.00	    1.11
+#DEROG	   0.10	     0.00	    1.12
+#DELINQ	   0.22	     0.00	    1.28
+#CLAGE	   0.15	     0.00	    1.18
+#NINQ	     0.10	     0.00	    1.11
+#CLNO	     0.26	     0.00	    1.34
+#DEBTINC	 0.11	     0.00	    1.12
+#loan_val	 0.75	     0.00	    4.05
+#mort_val	 0.65	     0.00	    2.87
+#del_total 0.23	     0.00	    1.30
+
+
+#The above table is build upon the values obtained from the following linear regression model. The pictures for 
+#each of fit below will be found in the doc file.
+
+mymodel2 <- lm(LOAN~ ., data = cor_train_check) 
+summary(mymodel2)
+
+mymodel3 <- lm(MORTDUE~ ., data = cor_train_check)
+summary(mymodel3) 
+
+mymodel4 <- lm(YOJ~ ., data = cor_train_check)
+summary(mymodel4) 
+
+mymodel5 <- lm(DEROG~ ., data = cor_train_check)
+summary(mymodel5) 
+
+mymodel6 <- lm(DELINQ~ ., data = cor_train_check)
+summary(mymodel6) 
+
+mymodel7 <- lm(CLAGE~ ., data = cor_train_check)
+summary(mymodel7) 
+
+mymodel8 <- lm(NINQ~ ., data = cor_train_check)
+summary(mymodel8) 
+
+mymodel9 <- lm(CLNO~ ., data = cor_train_check)
+summary(mymodel9) 
+
+mymodel10 <- lm(DEBTINC~ ., data = cor_train_check)
+summary(mymodel10) 
+
+mymodel11 <- lm(loan_val~ ., data = cor_train_check)
+summary(mymodel11) 
+
+mymodel12 <- lm(mort_val~ ., data = cor_train_check)
+summary(mymodel12) 
+
+mymodel13 <- lm(del_total~ ., data = cor_train_check)
+summary(mymodel13) 
+
+
+#For VALUE & MORTDUE, the VIF is above 10. So we have to take out one of them from the model. So i am choosing   
+#'VALUE' to be part of my model. See, I know this approach is not applicable for Categorical Predictors.
+#So, i made the assumption that they are not collinear and included them in the model. As of now, 
+#the available predictors for the model are LOAN, VALUE, REASON, JOB, YOJ, DEROG, DELINQ, CLAGE, NINQ, CLNO,
+#     DEBTINC, del_total, loan_val and mort_val. The target is 'BAD'. 
+
+
+
+
+#5.	Modeling: 
+
+#The aim of the following approaches in this step is to come up with a model which has lowest Residual deviance i.e maximum difference
+#between Null deviance and Residual deviance. We will also see the contribution of each predictor in reducing Residual Deviance.
+
+#I am fitting the Logistic regression model with available predictors (mentioned in last section) without adding interaction.
+
+#creating dummy for JOB and REASON.
+
+contrasts(training$REASON) 
+contrasts(training$JOB) 
+
+training$BAD <- as.factor(training$BAD)
+training1 <- training[, -2] #removing mort_due from the model
+glm.fits=glm(BAD~.,data= training1, family = binomial(link = "logit"))
+
+summary(glm.fits) #You will see that Null Deviance is 4074.2 and Residual deviance is 2944.1. The picture is there in the doc file.
+#Here i know by seeing seeing Pr(>|z|) we can think of  removing YOJ and loan_val. But i decided to keep it so that i can add
+#interactions later(with these variables if possible)
+
+
+anova(glm.fits, test="Chisq")  # We can see the individual contribution of each predictor in the reducing the residual deviance.
+                               # The DELINQ is highest with 343.71, DEBTINC is second with 262.76 . Again i have attached this in doc file.
+
+##adding interactions
+
+
+#a) I thought that the effectiveness of the 'LOAN' (Loan Requested) should increase with the 'VALUE' (Value of the current property) borrower has.
+
+#So i added the interaction term between LOAN and VALUE in the model to check the amount with which it brings residual deviance down.
+training2 <- training[, -2]
+glm.fits2=glm(BAD~. + LOAN:VALUE  ,data= training2, family = binomial(link = "logit"))
+summary(glm.fits2)   #We can see that Null Deviance is 4074.2 and Residual deviance is 2881.5. So it reduces the residual deviance by 
+                     #2944.1 - 2881.5 = 62.6 . This is also attached in the doc file.
+
+#We can clearly see that the amount mentioned above 62.6 is contributed by LOAN:VALUE  interaction from following code.  
+anova(glm.fits2, test="Chisq") #This is also attached in the doc file.
+
+#So we will include LOAN:VALUE interaction in the model
+
+#b) I thought that the effectiveness of the 'NINQ' (number of recent inquiries) should be related with  the type of 'JOB'  borrower has.
+
+#So i added the interaction term between JOB and NINQ in the model to check the amount with which it brings residual deviance down.
+training3 <- training[, -2]
+glm.fits3=glm(BAD~. + LOAN:VALUE+ JOB:NINQ ,data= training3, family = binomial(link = "logit"))
+
+summary(glm.fits3) #We can see that Null Deviance is 4074.2 and Residual deviance is 2842.9. So it reduces the residual deviance by 
+                   #2881.5- 2842.9 = 38.6 . This is also attached in the doc file.
+
+#Just to confirm the number mentioned above 38.6 contributed by this interaction  JOB:NINQ , i ran the following code.
+anova(glm.fits3, test="Chisq") #Please see the picture in the doc file.  
+
+
+#SO we will include JOB:NINQ in the model.
+
+
+#I look for other interactions as well like JOB:YOJ but it is reducing the residual deviance by 11 unit only. So it was not included. 
+
+
+#So the final model will be :
+training3 <- training[, -2]
+glm.fits3=glm(BAD~. + LOAN:VALUE+ JOB:NINQ ,data= training3, family = binomial(link = "logit"))
+#with residual deviance 2842.9 and AIC 2892.9 .
+
+#the model coefficients can be found by :
+round(coef(glm.fits3), 2) #attached
+
+
+#the std error for the estimates of the coefficients can be found by:
+round(summary(glm.fits3)$coef[,2],2) #attached
+
+#The output of the above code (std-error) is mentioned below, we can see that these are pretty small
+#so the estimates are pretty stable. 
+
+#(Intercept)        LOAN       VALUE   REASONHomeImp    JOBOffice        JOBOther 
+#     0.38           0.00       0.00       0.11            0.25            0.18 
+#  JOBProfExe     JOBSales    JOBSelf      YOJ           DEROG          DELINQ 
+#      0.21          0.51       0.38      0.01            0.06            0.05 
+#   CLAGE            NINQ      CLNO       DEBTINC       del_total        loan_val 
+#    0.00            0.06      0.01        0.01            0.37            0.56 
+#   mort_val      LOAN:VALUE  JOBOffice:NINQ   JOBOther:NINQ JOBProfExe:NINQ   JOBSales:NINQ 
+#    0.18            0.00      0.12               0.07            0.09            0.56 
+#  JOBSelf:NINQ 
+#    0.20
+
+
+
+#I will discuss about the signficance of the variables used in the model in the 7th step. So lets straight away go to 6th Step.
+
+
+
+#6.	Comparison: 
+contrasts(testing$REASON)
+contrasts(testing$JOB)  
+testing1 <- testing[,-2] #removing mort_due
+
+
+glm.probs1 =predict(glm.fits3, testing1 , type="response") # obtained predicted probabilities
+ 
+testing1$fit <-  glm.probs1  #creating  'fit' named variable in the  testing1 which will contain predicted proabilities
+
+testing2 <- testing1 %>% 
+  mutate(prob = ifelse(fit >= 0.5, 1, 0)) #creating  'prob' named variable in the  testing1 which will have 'BAD' indicator depending
+                                          #upon 50% probability
+
+
+actual1 <- testing2$BAD
+predicted1 <- testing2$prob
+
+table(predicted1, actual1) #Confusion matrix . TN = 1537, TP= 158,  FP = 67, FN = 204
+                           #accuracy  = 86.2 %
+                           #Precision = 70%
+                           #Recall    = 44 %
+                           #F1 score  = 54%
+
+#I think we should improve the recall so that we can cover as much 'BAD' as possible by setting threshold smaller than 0.5 at 0.3
+
+
+testing3 <- testing1 %>% 
+  mutate(prob = ifelse(fit >= 0.3, 1, 0)) #creating  'prob' named variable in the  testing1 which will have 'BAD' indicator depending
+                                          #upon 30% probability
+
+
+actual2 <- testing3$BAD
+predicted2 <- testing3$prob
+
+table(predicted2, actual2) #Confusion matrix . TN = 1413, TP = 219,  FP = 191, FN = 143
+                           #accuracy  = 83 %
+                           #Precision = 53.4%
+                           #Recall    = 60.5 % 
+                           #F1 score = 57%
+                         
+                         
+                         
+testing4 <- testing1 %>% 
+  mutate(prob = ifelse(fit >= 0.1, 1, 0)) #creating  'prob' named variable in the  testing1 which will have 'BAD' indicator depending
+                                          #upon 10% probability
+
+
+actual4 <- testing4$BAD
+predicted4 <- testing4$prob
+
+table(predicted4, actual4) #Confusion matrix . TN = 830, TP = 321,  FP = 774, FN = 41     
+                           #accuracy  = 59 %
+                           #Precision = 29%
+                           #Recall    = 87 % 
+                           #F1 score =  43.5%
+
+
+#Finally the summary :
+ 
+#   threshold	  Recall
+#      0.5	     0.44
+#      0.3	     0.605
+#      0.1	     0.87
+
+
+#####  auc and roc
+library(ROCR)
+p <- glm.probs1
+pr <- prediction(p, testing1$BAD)
+prf <- performance(pr, measure = "tpr", x.measure = "fpr")
+plot(prf)
+
+auc <- performance(pr, measure = "auc")
+auc <- auc@y.values[[1]]
+auc     #0.82
+
+
+#7.	Statistical tests: 
+#checking the significance of the variables 
+
+
+#Lets revisit the model which we finalise glm.fits3
+#
+
+summary(glm.fits3) # we have standard error corresponding to the estimate of each of the variable 
+                   # and (Pr(>|z|)) 
+                   # with standard error being small the (max  value is 0.56 and mean value 0.175)
+                   #we can say that estimates will be relatively stable
+
+
+#I am going to check the significance of the variable by checking the amount with which residual deviance is reduced
+anova(glm.fits3, test="Chisq") 
+  #The order will be:
+  # DELINQ  - reduced the residual deviance by 343 (the largest) so it is most significant
+  # DEBTINC - reduced the residual deviance by 263   
+  # DEROG   - reduced the residual deviance by 237
+  # CLAGE   - reduced the residual deviance by 106
+  # JOB     - reduced the residual deviance by 69 although for some of its levels the p-value is more than 0.05 
+  #           but is significant as its reduce the deviance
+  #LOAN:VALUE-this interaction is also significant reducing the deviance by 62.58
+  #JOB:NINQ  -this interaction is also significant reducing the deviance by 38.68
+  #NINQ      - Although p-value is more than 0.05 but it is significant as its interaction with JOB:NINQ reduce by 38.68
+  #             it alone reduces by 35 
+  #del_total - is reducing by 25  and its p-value is also very small  
+
+#There are other predictors also for which p-value is small and also contributing very less in reducing the residual deviance
+  # CLNO
+  # loan_value 
+
+#There are other predictors also for which p-value is large and also contributing very less in reducing the residual deviance
+  # REASON   
+  # YOJ
+
+
+
+
+
+##########################THE-END#######################
