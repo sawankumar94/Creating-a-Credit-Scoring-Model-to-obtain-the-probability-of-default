@@ -128,7 +128,7 @@ testing <- final_data[-inTrain,]
 
 new_training <- training[, -c(4,5, 13)] #excluding 'JOB','REASON' and 'BAD'
 
-round(cor(new_training), 2) #The output is attached in the word file. Please have a look.
+round(cor(new_training), 2) #Finding Correlation Coefficient.
                             #We can see that MORTDUE and VALUE have correlation coefficient 0.88 which is maximum
                             #second largest wiht 0.57 between loan_val and LOAN
                             #third largest wiht 0.42 between del_total and DELINQ
@@ -153,9 +153,7 @@ contrasts(cor_train_check$REASON)
 contrasts(cor_train_check$JOB) 
 
 mymodel1 <- lm(VALUE~ ., data = cor_train_check )
-summary(mymodel1) #The screenshot of the summary of the parameters, R-squared,  p-value of the individual coefficients
-                  #and p-value of the fit are in the doc file. Please have a look. 
-                  #For mymodel1, the R-squared is 0.9016 and p-value of the entire fit is 2.2e-16, so the fit is significant.
+summary(mymodel1) #For mymodel1, the R-squared is 0.9016 and p-value of the entire fit is 2.2e-16, so the fit is significant.
                   # VIF = 1/(1-Rsquared) = 1/(1-0.9016) = 10.16
 
 
@@ -177,8 +175,7 @@ summary(mymodel1) #The screenshot of the summary of the parameters, R-squared,  
 #mort_val	 0.65	     0.00	    2.87
 #del_total 0.23	     0.00	    1.30
 
-#The above table is build upon the values obtained from the following linear regression model. The pictures for 
-#each of fit below will be found in the doc file.
+#The above table is build upon the values obtained from the following linear regression model. 
 
 mymodel2 <- lm(LOAN~ ., data = cor_train_check) 
 summary(mymodel2)
